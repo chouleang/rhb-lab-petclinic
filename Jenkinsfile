@@ -41,14 +41,25 @@ pipeline {
             }
         }
 
-        stage('Deploy to EKS') {
-            steps {
-                echo "=== Deploying to EKS ==="
+stage('Deploy to EKS') {
+    steps {
+        echo "=== Deploying to EKS ==="
+        sh """
+            aws eks update-kubeconfig \
+                --name ${EKS_CLUSTER} \
+                --region ${AWS_REGION}
+        """
+        
+        script {
+            // Check if deployment exists
+            def deployExists = sh(
+                script: "kubectl get deployment api-gateway -n ${NAMESPACE} 2>/dev/null",
+                returnStatus: true
+            ) == 0
+
+            if (deployExists) {
+                echo "=== Deployment exists → updating image ==="
                 sh """
-                    aws eks update-kubeconfig \
-                        --name ${EKS_CLUSTER} \
-                        --region ${AWS_REGION}
-                    
                     kubectl set image deployment/api-gateway \
                         api-gateway=${DOCKER_IMAGE}:${DOCKER_TAG} \
                         -n ${NAMESPACE}
@@ -56,11 +67,22 @@ pipeline {
                     kubectl rollout status deployment/api-gateway \
                         -n ${NAMESPACE}
                 """
+            } else {
+                echo "=== Deployment not found → creating from manifest ==="
+                sh """
+                    # Replace image placeholder in manifest
+                    sed -i 's|DOCKER_HUB_USERNAME/rhb-lab-petclinic:latest|${DOCKER_IMAGE}:${DOCKER_TAG}|g' \
+                        k8s/deployment.yaml
+                    
+                    kubectl apply -f k8s/ -n ${NAMESPACE}
+                    
+                    kubectl rollout status deployment/api-gateway \
+                        -n ${NAMESPACE}
+                """
             }
         }
-
     }
-
+}
     post {
         success {
             echo "=== Pipeline SUCCESS ==="
