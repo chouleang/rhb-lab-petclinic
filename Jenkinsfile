@@ -82,6 +82,7 @@ stage('Deploy to EKS') {
             }
         }
     }
+ }
 }
     post {
         success {
